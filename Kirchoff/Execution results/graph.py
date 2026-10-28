@@ -1,100 +1,126 @@
 # -*- coding: utf-8 -*-
-# command to execute: python graph.py proactive_5_arima
-
-import pandas as pd
 import datetime
+import os
 import re
-import sys,os
-file_name = sys.argv[1]
-file = open(file_name+".txt","r");
-#file = open("reactive.txt","r");
-#file = open("proactive_autoArima_60min.txt","r");
-interv_time = '60'
-lines = file.readlines()
-log ="";
+import sys
+import matplotlib.pyplot as plt
+import pandas as pd
+
+if len(sys.argv) < 2:
+  print("Uso correto: python3 graph.py <nome_do_arquivo_sem_extensao>")
+  sys.exit(1)
+
+file_name = sys.argv[1].replace(".txt", "")
+file_path = file_name + ".txt"
+
+if not os.path.exists(file_path):
+  print(f"Erro: O arquivo '{file_path}' nao foi encontrado na pasta atual.")
+  sys.exit(1)
+
+with open(file_path, "r", encoding="utf-8", errors="ignore") as file:
+  lines = file.readlines()
+
 
 def timeToStr(totalSecs):
-  #return str(datetime.timedelta(seconds=float(totalSecs)))
   m, s = divmod(float(totalSecs), 60)
   h, m = divmod(m, 60)
-  return '{:d}:{:02d}:{:02d}'.format(int(h), int(m), int(s)) # Python 3
+  return "{:d}:{:02d}:{:02d}".format(int(h), int(m), int(s))
 
 
-"""# **Data frame by minutes (dfm)**"""
-
-# manipulation of dataframe
-
-log2="";  
-log2 = log2 + "Time;accepted;rejected;idle;qos"+'\n'
+log2 = "Time;accepted;rejected;idle;qos\n"
 
 for i in lines:
   index = i.find("Process Request:")
-  if index > -1 :
-    line = i[index:len(i)];
-    line = re.sub('([aA-zZ])', '', line)
-    line = line.replace(" ",'')
-    line = line.replace(":",';')
-    line = line.replace(",",'.')
-    line = line.replace("-∞",'0')
-    
-    #print(line[2:])
-    log2 = log2 + timeToStr(i[0:index-2])+';'+line[2:]
-    
+  if index > -1:
+    line = i[index:]
+    line = re.sub("([aA-zZ])", "", line)
+    line = line.replace(" ", "")
+    line = line.replace(":", ";")
+    line = line.replace(",", ".")
+    line = line.replace("-∞", "0")
+    log2 += timeToStr(i[0 : index - 2]) + ";" + line[2:]
 
-dfm = pd.DataFrame([x.split(';') for x in log2.split('\n')[1:]], columns=[x for x in log2.split('\n')[0].split(';')])
-#df = pd.DataFrame([x.split(';') for x in log.split('\n')])
-#pd.to_datetime(df['date_col'], format='%d/%m/%Y')
-#df['Time'] = df['Time'].astype(datetime)
+rows = [
+    x.split(";")
+    for x in log2.strip().split("\n")
+    if x.strip() and len(x.split(";")) == 5
+]
 
-dfm['accepted'] = dfm['accepted'].astype(float)
-dfm['rejected'] = dfm['rejected'].astype(float)
-dfm['idle'] = dfm['idle'].astype(float)
-dfm['qos'] = dfm['qos'].astype(float)
-dfm['capacity'] = ((dfm['accepted'].astype(float) + dfm['idle'].astype(float)) /15)
+if len(rows) > 1:
+  header = rows[0]
+  data = rows[1:]
 
+  dfm = pd.DataFrame(data, columns=header)
+  dfm["accepted"] = dfm["accepted"].astype(float)
+  dfm["rejected"] = dfm["rejected"].astype(float)
+  dfm["idle"] = dfm["idle"].astype(float)
+  dfm["qos"] = dfm["qos"].astype(float)
 
-import matplotlib.pyplot as plt
-import numpy as np
-from matplotlib.ticker import (MultipleLocator, FormatStrFormatter,
-                               AutoMinorLocator)
+  fig, ax = plt.subplots(figsize=(12, 6), dpi=300)
 
-fig, ax = plt.subplots(figsize=(19, 10))
-df = dfm  #[:200]
+  x_indices = range(len(dfm))
+  capacity = dfm["accepted"] + dfm["idle"]
+  load = dfm["accepted"] + dfm["rejected"]
+  y_a = dfm["accepted"]
 
-x =df['Time']
-y_a = df['accepted']
-y_r = df['rejected']
-capacity = df['accepted'] + df['idle']
-load = df['accepted'] + df['rejected']
-#ax.plot(x, capacity, label = 'resources')
-ax.fill_between( x, capacity, color="limegreen", alpha=0.3, label = 'Resources')
-ax.plot(x, load, label='Workload', color='black', linestyle=':')
-ax.plot(x, y_a, label='Accepted')
-#ax.bar(x, y_r, label='Rejected', color="red")
+  # Curvas formatadas para artigo científico
+  ax.fill_between(
+      x_indices,
+      capacity,
+      color="#2ecc71",
+      alpha=0.35,
+      label="Recursos Alocados (Capacity)",
+  )
+  ax.plot(
+      x_indices,
+      load,
+      label="Carga Total (Workload)",
+      color="#2c3e50",
+      linestyle=":",
+      linewidth=0.9,
+      alpha=0.85,
+  )
+  ax.plot(
+      x_indices,
+      y_a,
+      label="Requisicoes Aceitas (Accepted)",
+      color="#2980b9",
+      linewidth=0.8,
+      alpha=0.9,
+  )
 
-#ax.xaxis.set_major_locator( MultipleLocator(1440))
+  # Distribuicao limpa no Eixo X (exibe apenas 10 rótulos de tempo)
+  n_ticks = 10
+  step = max(1, len(dfm) // n_ticks)
+  tick_positions = list(range(0, len(dfm), step))
+  tick_labels = [dfm["Time"].iloc[i] for i in tick_positions]
 
-#ax.xaxis.set_minor_locator(MultipleLocator(720))
-ax.set_xticklabels( x, rotation=45 ) ;
+  ax.set_xticks(tick_positions)
+  ax.set_xticklabels(tick_labels, rotation=30, ha="right", fontsize=9)
 
-#ax.tick_params(which='both', width=2)
-#ax.tick_params(which='major', length=10)
-#ax.tick_params(which='minor', length=4, color='r')
+  ax.set_title(
+      f"Provisionamento de Recursos vs. Demanda ({file_name})",
+      fontsize=12,
+      pad=12,
+      fontweight="bold",
+  )
+  ax.set_xlabel("Tempo Simulado (hh:mm:ss)", fontsize=10, labelpad=8)
+  ax.set_ylabel("Quantidade de Requisicoes", fontsize=10, labelpad=8)
+  ax.grid(True, linestyle="--", alpha=0.4)
+  ax.legend(loc="upper right", framealpha=0.9, fontsize=9)
 
-plt.title("Number of Vms used ("+file_name + ")")
-plt.xlabel('Time')
-plt.ylabel('Requests')
+  plt.tight_layout()
 
-#plt.grid()
-plt.legend()
+  os.makedirs("graph", exist_ok=True)
+  desc = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+  output_pdf = f"graph/{file_name}_{desc}.pdf"
+  output_png = f"graph/{file_name}_{desc}.png"
 
-desc = str(datetime.datetime.now().time())
-plt.savefig('graph/'+file_name+' '+desc+'.pdf')
-plt.show()
+  plt.savefig(output_pdf, format="pdf", bbox_inches="tight")
+  plt.savefig(output_png, format="png", bbox_inches="tight")
 
-dfm.sum(axis = 0, skipna = True)# axis=0 columns axis = 1 lines
-
-#file_name = 'drive/My Drive/colab_dataset/proactive_schedule_atual_05_convertido.csv'
-#dfm.to_csv(file_name+'_min_converted.csv', sep='\t', encoding='utf-8')
-
-#dfm[:15]
+  print("Sucesso! Graficos gerados em:")
+  print(f" - PDF: {output_pdf}")
+  print(f" - PNG: {output_png}")
+else:
+  print(f"Atencao: Nenhuma linha valida encontrada em {file_path}")
